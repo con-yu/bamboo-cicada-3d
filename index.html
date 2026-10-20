@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1512" />
+<title>3D 竹知了 · 搓一搓，夏天就响了</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230c1a16'/><path d='M16 4v24' stroke='%23e8c07a' stroke-width='2.2' stroke-linecap='round'/><path d='M16 11.5c-5.4-1.2-8 1.2-8 3.6s3.6 3.6 8 2.2' fill='%23e8c07a'/><path d='M16 11.5c5.4-1.2 8 1.2 8 3.6s-3.6 3.6-8 2.2' fill='%23d3a860'/></svg>" />
+<link rel="stylesheet" href="css/style.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+<div class="noise"></div>
+
+<!-- ───────── 顶部 ───────── -->
+<header class="hud-top">
+  <div class="brand">
+    <h1><span class="cn">竹知了</span><span class="tag">3D</span></h1>
+    <p class="sub">搓一搓，整个夏天就响了</p>
+  </div>
+
+  <nav class="modes" aria-label="挑战模式">
+    <button class="mode-btn is-active" data-mode="long">长鸣挑战</button>
+    <button class="mode-btn" data-mode="speed">极速挑战</button>
+  </nav>
+</header>
+
+<!-- ───────── 左下：转速表 ───────── -->
+<section class="gauge" id="gauge">
+  <div class="ring">
+    <svg viewBox="0 0 120 120" aria-hidden="true">
+      <circle class="ring-track" cx="60" cy="60" r="52" />
+      <circle class="ring-fill" id="ringFill" cx="60" cy="60" r="52" />
+    </svg>
+    <div class="ring-core">
+      <span class="rpm" id="rpmValue">0</span>
+      <span class="unit">RPM</span>
+    </div>
+  </div>
+  <div class="gauge-meta">
+    <span class="state" id="stateText">静止</span>
+    <span class="hz" id="hzText">0.0 转/秒</span>
+  </div>
+</section>
+
+<!-- ───────── 右侧：挑战面板 ───────── -->
+<aside class="panel" id="panel">
+  <div class="panel-head">
+    <h2 id="challengeTitle">长鸣挑战</h2>
+    <span class="badge" id="challengeGoal">目标 15.0s</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <span class="k" id="curLabel">本次长鸣</span>
+      <strong class="v" id="curValue">0.0<em>s</em></strong>
+    </div>
+    <div class="stat">
+      <span class="k">历史最佳</span>
+      <strong class="v dim" id="bestValue">--</strong>
+    </div>
+  </div>
+
+  <div class="bar"><i id="barFill"></i></div>
+  <p class="panel-tip" id="panelTip">转速高于 900 RPM 才算「鸣叫中」</p>
+</aside>
+
+<!-- ───────── 右下：手势预览 ───────── -->
+<div class="cam" id="camPanel" hidden>
+  <div class="cam-frame">
+    <video id="camVideo" playsinline muted autoplay></video>
+    <canvas id="camOverlay"></canvas>
+    <div class="cam-scan"></div>
+  </div>
+  <div class="cam-foot">
+    <span class="dot" id="camDot"></span>
+    <span id="camLabel">正在准备…</span>
+  </div>
+</div>
+
+<!-- ───────── 底部操作 ───────── -->
+<footer class="hud-bottom">
+  <p class="hint" id="hint">按住来回搓动 · 右键或双指拖动转视角</p>
+  <div class="actions">
+    <button class="btn" id="btnHands"><i class="ico ico-hand"></i>手势控制</button>
+    <button class="btn" id="btnShake"><i class="ico ico-wave"></i>摇一摇</button>
+    <button class="btn" id="btnReset"><i class="ico ico-reset"></i>重新开始</button>
+  </div>
+</footer>
+
+<!-- ───────── 提示气泡 ───────── -->
+<div class="toasts" id="toasts"></div>
+
+<!-- ───────── 启动遮罩 ───────── -->
+<div class="boot" id="boot">
+  <div class="boot-inner">
+    <p class="boot-kicker">传统竹制声玩 · 实时物理 &amp; 声学仿真</p>
+    <h2>3D 版「竹知了」</h2>
+    <p class="boot-desc">
+      一根竹签串一片薄竹片，搓动竹签，竹片切割空气开始旋转。<br />
+      转速越快，蝉鸣越响、调子越高。松手之后，它会自己慢慢停下。
+    </p>
+    <button class="boot-btn" id="btnStart">搓响它</button>
+    <p class="boot-note">声音全部由 Web Audio 实时合成，未使用任何录音采样</p>
+    <p class="boot-error" id="bootError" hidden>
+      检测到以 <code>file://</code> 直接打开文件 —— 浏览器会拦截 ES Module 与音频。<br />
+      请在本目录执行 <code>python3 -m http.server 8080</code>，再访问
+      <code>http://localhost:8080</code>
+    </p>
+  </div>
+</div>
+
+<script>
+  // file:// 下 ES Module 会被浏览器拦截，提前给出可执行的指引
+  (function () {
+    if (location.protocol !== 'file:') return;
+    var err = document.getElementById('bootError');
+    var btn = document.getElementById('btnStart');
+    if (err) err.hidden = false;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '请用本地服务器打开';
+      btn.style.opacity = '.5';
+      btn.style.cursor = 'not-allowed';
+    }
+  })();
+</script>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
